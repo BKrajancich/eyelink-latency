@@ -16,7 +16,7 @@
 
 #include "display.hh"
 
-#define BOX_DIM 100    /* Dimensions of the white square */
+#define CURSOR_SIZE 5 /* radius of the white dot in px */
 #define NUM_TRIALS 1
 
 using namespace std;
@@ -99,17 +99,9 @@ int initialize_eyelink()
   return 0;
 }
 
-/**
- * Separate thread for running updating the display. Toggles between 2 of 4
- * textures: clock_white and clock_black before triggered, and trigger_white
- * and trigger_black after triggering, where the post-trigger versions contain
- * a white square at the bottom left in addition to alternating black and white
- * in the top left.
- *
- * @param triggered A shared atomic to indicate whether to switch textures.
- */
-void clock_loop( atomic<bool>& triggered, atomic<unsigned int>& drawing_delay )
+int gc_window_trial()
 {
+  unsigned int frame_count = 0;
 
   // First, set up all the textures
   VideoDisplay display { 1920, 1080, true }; // fullscreen window @ 1920x1080 luma resolution
@@ -121,101 +113,9 @@ void clock_loop( atomic<bool>& triggered, atomic<unsigned int>& drawing_delay )
   // * -1 for adaptive vsync
   display.window().set_swap_interval( 0 );
 
-  /* top left box white (235 = max luma in typical Y'CbCr colorspace) */
-  Raster420 clock_white { 1920, 1080 };
-
-  for ( unsigned int y = 0; y < clock_white.Y.height(); y++ ) {
-    for ( unsigned int x = 0; x < clock_white.Y.width(); x++ ) {
-      const uint8_t color = ( x < BOX_DIM && y < BOX_DIM ) ? 235 : 16;
-      clock_white.Y.at( x, y ) = color;
-    }
-  }
-
-  Texture420 clock_white_texture { clock_white };
-
-  /* all black (16 = min luma in typical Y'CbCr colorspace) */
-  Raster420 clock_black { 1920, 1080 };
-  memset( clock_black.Y.mutable_pixels(), 16, clock_black.Y.width() * clock_black.Y.height() );
-  Texture420 clock_black_texture { clock_black };
-
-  /* top left box white (235 = max luma in typical Y'CbCr colorspace) */
-  Raster420 triggered_white { 1920, 1080 };
-
-  for ( unsigned int y = 0; y < triggered_white.Y.height(); y++ ) {
-    for ( unsigned int x = 0; x < triggered_white.Y.width(); x++ ) {
-      const uint8_t color =
-        ( ( x < BOX_DIM && y < BOX_DIM ) || ( x < BOX_DIM && y > ( triggered_white.Y.height() - BOX_DIM ) ) ) ? 235
-                                                                                                              : 16;
-      triggered_white.Y.at( x, y ) = color;
-    }
-  }
-
-  Texture420 triggered_white_texture { triggered_white };
-
-  /* all black (16 = min luma in typical Y'CbCr colorspace) */
-  Raster420 triggered_black { 1920, 1080 };
-
-  for ( unsigned int y = 0; y < triggered_black.Y.height(); y++ ) {
-    for ( unsigned int x = 0; x < triggered_black.Y.width(); x++ ) {
-      const uint8_t color = ( x < BOX_DIM && y > ( triggered_black.Y.height() - BOX_DIM ) ) ? 235 : 16;
-      triggered_black.Y.at( x, y ) = color;
-    }
-  }
-
-  Texture420 triggered_black_texture { triggered_black };
-
-  // Draw textures once to warm up. This brings subsequent draw times to <1ms.
-  display.draw( triggered_white_texture );
-  display.draw( triggered_black_texture );
-  display.draw( clock_white_texture );
-  display.draw( clock_black_texture );
-
-  // Spin here altterating frames until we are done
-  static bool toggle = true;
-  unsigned int frame_count = 0;
-
-  const auto start_time = steady_clock::now();
-  auto ts_prev = steady_clock::now();
-
-  while ( true ) {
-    if ( triggered ) {
-      // Draw a couple of the triggered frames and then end
-      const auto t1 = steady_clock::now();
-      display.draw( toggle ? triggered_white_texture : triggered_black_texture );
-      const auto t2 = steady_clock::now();
-      drawing_delay = duration_cast<microseconds>( t2 - t1 ).count();
-      display.draw( toggle ? triggered_black_texture : triggered_white_texture );
-      display.draw( toggle ? triggered_white_texture : triggered_black_texture );
-      cout << "Drawing delay " << drawing_delay << " us\n";
-      return;
-    }
-
-    const auto ts = steady_clock::now();
-    const auto tdiff = duration_cast<milliseconds>( ts - ts_prev ).count();
-    if ( tdiff >= 4 ) {
-      display.draw( toggle ? clock_white_texture : clock_black_texture );
-      toggle = !toggle;
-      frame_count++;
-      ts_prev = ts;
-
-      if ( frame_count % 480 == 0 ) {
-        const auto now = steady_clock::now();
-        const auto ms_elapsed = duration_cast<milliseconds>( now - start_time ).count();
-        cout << "Drew " << frame_count << " frames in " << ms_elapsed
-             << " milliseconds = " << 1000.0 * double( frame_count ) / ms_elapsed << " frames per second.\n";
-      }
-    }
-  }
-}
-
-int gc_window_trial( ofstream& log)
-{
-  unsigned int sensing_delay = 0;
-
   // Used to track gaze samples
   ALLF_DATA evt;
-  float x, y;
-  float x_new, y_new;
+  float x_sample, y_sample;
 
   // Ensure Eyelink has enough time to switch modes
   set_offline_mode();
@@ -241,22 +141,8 @@ int gc_window_trial( ofstream& log)
   // reset keys and buttons from tracker
   eyelink_flush_keybuttons( 0 );
 
-  // First, initialize with a single valid sample.
-  while ( true ) {
-    if ( eyelink_newest_float_sample( NULL ) > 0 ) {
-      eyelink_newest_float_sample( &evt );
-
-      x = evt.fs.gx[eye_used];
-      y = evt.fs.gy[eye_used];
-
-      // make sure pupil is present
-      if ( x != MISSING_DATA && y != MISSING_DATA && evt.fs.pa[eye_used] > 0 ) {
-        break;
-      }
-    }
-  }
-
   const auto start_time = steady_clock::now();
+  auto ts_prev = steady_clock::now();
 
   // Poll for new samples until the diff between samples is large enough to signify LEDs switched
   while ( true ) {
@@ -264,43 +150,65 @@ int gc_window_trial( ofstream& log)
     if ( eyelink_newest_float_sample( NULL ) > 0 ) {
       eyelink_newest_float_sample( &evt );
 
-      x_new = evt.fs.gx[eye_used];
-      y_new = evt.fs.gy[eye_used];
+      x_sample = evt.fs.gx[eye_used];
+      y_sample = evt.fs.gy[eye_used];
 
       // make sure pupil is present
-      if ( x != MISSING_DATA && y != MISSING_DATA && evt.fs.pa[eye_used] > 0 ) {
+      if ( x_sample != MISSING_DATA && y_sample != MISSING_DATA && evt.fs.pa[eye_used] > 0 ) {
         // TODO: Draw a dot where we are looking
-        
+        /* top left box white (235 = max luma in typical Y'CbCr colorspace) */
+        Raster420 cursor { 1920, 1080 };
+
+        for ( unsigned int y = 0; y < cursor.Y.height(); y++ ) {
+          for ( unsigned int x = 0; x < cursor.Y.width(); x++ ) {
+            // Check if point is within radius
+            bool within_circle = ( ( ( x_sample - x ) * ( x_sample - x ) ) +
+                                   ( ( y_sample - y ) * ( y_sample - y ) ) ) <= ( CURSOR_SIZE * CURSOR_SIZE );
+            const uint8_t color = within_circle ? 235 : 16;
+            cursor.Y.at( x, y ) = color;
+          }
+        }
+
+        Texture420 cursor_texture { cursor };
+
+        const auto ts = steady_clock::now();
+        const auto tdiff = duration_cast<milliseconds>( ts - ts_prev ).count();
+        if ( tdiff >= 4 ) {
+          // Draw texture. Note this may introduce extra delay since this is
+          // computing a texture each update.
+          display.draw( cursor_texture );
+
+          frame_count++;
+          ts_prev = ts;
+
+          if ( frame_count % 480 == 0 ) {
+            const auto now = steady_clock::now();
+            const auto ms_elapsed = duration_cast<milliseconds>( now - start_time ).count();
+            cout << "Drew " << frame_count << " frames in " << ms_elapsed
+                 << " milliseconds = " << 1000.0 * double( frame_count ) / ms_elapsed << " frames per second.\n";
+          }
         }
       }
     }
   }
-
   end_trial();
   return check_record_exit();
 }
 
 int run_trials()
 {
-  ofstream log;
-
-  log.open( "results.csv" );
-  log << "e2e (us), eyelink (us)\n";
-
   for ( unsigned int trial = 0; trial < NUM_TRIALS; trial++ ) {
     // abort if link is closed
     if ( eyelink_is_connected() == 0 || break_pressed() ) {
-      log.close();
       return ABORT_EXPT;
     }
 
-    int i = gc_window_trial( log );
+    int i = gc_window_trial();
 
     // Report errors
     switch ( i ) {
       case ABORT_EXPT: // handle experiment abort or disconnect
         cout << "EXPERIMENT ABORTED\n";
-        log.close();
         return ABORT_EXPT;
       case REPEAT_TRIAL: // trial restart requested
         cout << "TRIAL REPEATED\n";
@@ -317,7 +225,6 @@ int run_trials()
         break;
     }
   }
-  log.close();
 
   return 0;
 }
