@@ -17,66 +17,10 @@
 #include "display.hh"
 
 #define BOX_DIM 100    /* Dimensions of the white square */
-#define DIFF_THRESH 25 /* Abs diff for x or y to change before trigger */
-#define SERIAL "/dev/ttyACM0"
-#define BAUD B115200
 #define NUM_TRIALS 1
 
 using namespace std;
 using namespace std::chrono;
-
-/**
- * Setup the serial port interface attributes to 8-bit, no parity, 1 stop bit.
- *
- * @param fd    File descriptor of the serial port.
- * @param speed The baud rate to use.
- */
-int set_interface_attribs( int fd, int speed )
-{
-  struct termios tty;
-
-  if ( !isatty( fd ) ) {
-    printf( "fd is not a TTY\n" );
-    return -1;
-  }
-
-  if ( tcgetattr( fd, &tty ) < 0 ) {
-    printf( "Error from tcgetattr: %s\n", strerror( errno ) );
-    return -1;
-  }
-
-  tty.c_cflag |= CLOCAL | CREAD;
-  tty.c_cflag &= ~CSIZE;
-  tty.c_cflag |= CS8;      // 8-bit characters
-  tty.c_cflag &= ~PARENB;  // no parity bit
-  tty.c_cflag &= ~CSTOPB;  // only need 1 stop bit
-  tty.c_cflag &= ~CRTSCTS; // no hardware flowcontrol
-
-  tty.c_lflag |= ICANON | ISIG; // canonical input
-  tty.c_lflag &= ~( ECHO | ECHOE | ECHONL | IEXTEN );
-
-  tty.c_iflag &= ~IGNCR; // preserve carriage return
-  tty.c_iflag &= ~INPCK;
-  tty.c_iflag &= ~( INLCR | ICRNL | IUCLC | IMAXBEL );
-  tty.c_iflag &= ~( IXON | IXOFF | IXANY ); // no SW flowcontrol
-
-  tty.c_oflag &= ~OPOST;
-
-  tty.c_cc[VEOL] = 0;
-  tty.c_cc[VEOL2] = 0;
-  tty.c_cc[VEOF] = 0x04;
-
-  if ( cfsetospeed( &tty, speed ) < 0 || cfsetispeed( &tty, speed ) < 0 ) {
-    printf( "unable to set correct baud rates.\n" );
-    return -1;
-  }
-
-  if ( tcsetattr( fd, TCSANOW, &tty ) != 0 ) {
-    printf( "Error from tcsetattr: %s\n", strerror( errno ) );
-    return -1;
-  }
-  return 0;
-}
 
 /**
  * End recording: adds 100 msec of data to catch final events
@@ -264,14 +208,9 @@ void clock_loop( atomic<bool>& triggered, atomic<unsigned int>& drawing_delay )
   }
 }
 
-int gc_window_trial( ofstream& log, int arduino )
+int gc_window_trial( ofstream& log)
 {
-  // Start thread for updating the display
-  atomic<bool> triggered( false );
-  atomic<unsigned int> drawing_delay( 0 );
   unsigned int sensing_delay = 0;
-  char buf[64]; // store serial data from Arduino
-  thread display_thread = thread( clock_loop, ref( triggered ), ref( drawing_delay ) );
 
   // Used to track gaze samples
   ALLF_DATA evt;
@@ -317,15 +256,6 @@ int gc_window_trial( ofstream& log, int arduino )
     }
   }
 
-  // Send Arduino the command to switch LEDs
-  int wlen = write( arduino, "g", 1 );
-  if ( wlen != 1 ) {
-    cerr << "[Error] Unable to send to arduino.\n";
-    end_trial();
-    return TRIAL_ERROR;
-  }
-  tcdrain( arduino );
-
   const auto start_time = steady_clock::now();
 
   // Poll for new samples until the diff between samples is large enough to signify LEDs switched
@@ -339,39 +269,12 @@ int gc_window_trial( ofstream& log, int arduino )
 
       // make sure pupil is present
       if ( x != MISSING_DATA && y != MISSING_DATA && evt.fs.pa[eye_used] > 0 ) {
-        // Only trigger change when there is a large enough diff
-        if ( abs( x - x_new ) >= DIFF_THRESH && abs( y - y_new ) >= DIFF_THRESH ) {
-          // Update shared atomic bool to signal display thread
-          triggered = true;
-
-          const auto t1 = steady_clock::now();
-          sensing_delay = duration_cast<microseconds>( t1 - start_time ).count();
-          cout << "Sensor delay " << sensing_delay << " us\n";
-
-          // Blocking read call while we wait for the arduino's
-          // end-to-end measurement.
-          int rdlen = read( arduino, buf, sizeof( buf ) - 1 );
-          if ( rdlen > 0 ) {
-            buf[rdlen] = 0;
-            cout << "Read: " << buf << endl;
-          } else if ( rdlen < 0 ) {
-            cerr << "[Error] Unable to read from Arduino.";
-            end_trial();
-            return TRIAL_ERROR;
-          } else {
-            cerr << "Nothing read. EOF?\n";
-          }
-          break;
+        // TODO: Draw a dot where we are looking
+        
         }
       }
     }
   }
-
-  // Wait for display thread to finish
-  display_thread.join();
-
-  // Log results to file
-  log << atoi( as_const( buf ) ) << "," << sensing_delay << "," << drawing_delay << endl;
 
   end_trial();
   return check_record_exit();
@@ -379,26 +282,6 @@ int gc_window_trial( ofstream& log, int arduino )
 
 int run_trials()
 {
-  // To communicate with arduino over serial
-  int arduino;
-
-  // Open the serial port to the Arduino
-  arduino = open( (char*)SERIAL, O_RDWR | O_NOCTTY | O_SYNC );
-  if ( arduino < 0 ) {
-    printf( "Error opening %s: %s\n", SERIAL, strerror( errno ) );
-    return ABORT_EXPT;
-  }
-
-  // baudrate 115200, 8 bits, no parity, 1 stop bit
-  if ( set_interface_attribs( arduino, BAUD ) != 0 ) {
-    printf( "Error setting serial interface attribs.\n" );
-    close( arduino );
-    return ABORT_EXPT;
-  }
-
-  // Arduino Uno uses DTR line to trigger a reset, so wait for it to boot fully.
-  sleep( 5 );
-
   ofstream log;
 
   log.open( "results.csv" );
@@ -407,18 +290,16 @@ int run_trials()
   for ( unsigned int trial = 0; trial < NUM_TRIALS; trial++ ) {
     // abort if link is closed
     if ( eyelink_is_connected() == 0 || break_pressed() ) {
-      close( arduino );
       log.close();
       return ABORT_EXPT;
     }
 
-    int i = gc_window_trial( log, arduino );
+    int i = gc_window_trial( log );
 
     // Report errors
     switch ( i ) {
       case ABORT_EXPT: // handle experiment abort or disconnect
         cout << "EXPERIMENT ABORTED\n";
-        close( arduino );
         log.close();
         return ABORT_EXPT;
       case REPEAT_TRIAL: // trial restart requested
@@ -436,9 +317,6 @@ int run_trials()
         break;
     }
   }
-
-  // clean up
-  close( arduino );
   log.close();
 
   return 0;
