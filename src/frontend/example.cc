@@ -13,6 +13,7 @@
 
 #include <core_expt.h>
 #include <eyelink.h>
+#include <sdl_expt.h>
 
 #include "display.hh"
 
@@ -99,9 +100,65 @@ int initialize_eyelink()
   return 0;
 }
 
+int exit_eyelink()
+{
+  close_expt_graphics();      // tell EXPTSPPT to release window
+  close_eyelink_connection(); // disconnect from tracker
+  return 0;
+}
+
+void clear_full_screen_window( SDL_Surface* window, SDL_Color c )
+{
+  SDL_FillRect( window, NULL, SDL_MapRGB( window->format, c.r, c.g, c.b ) );
+  SDL_Flip( window );
+  SDL_FillRect( window, NULL, SDL_MapRGB( window->format, c.r, c.g, c.b ) );
+}
+
+void do_calibration()
+{
+  // The colors of the target and background for calibration and drift correct
+  SDL_Color target_background_color = { 192, 192, 192, 0 };
+  SDL_Color target_foreground_color = { 0, 0, 0, 0 };
+  SDL_Surface* window = NULL;
+
+  // register window with EXPTSPPT
+  if ( init_expt_graphics( NULL, NULL ) ) {
+    exit_eyelink();
+    return;
+  }
+
+  // Setup calibration type
+  eyecmd_printf( "calibration_type = HV9" );
+
+  window = SDL_GetVideoSurface();
+
+  // Size for calibration target and focal spot
+  unsigned int i = 1920 / 60;
+  unsigned int j = 1920 / 300;
+  if ( j < 2 )
+    j = 2;
+  set_target_size( i, j ); // tell DLL the size of target features
+
+  // tell EXPTSPPT the colors
+  set_calibration_colors( &target_foreground_color, &target_background_color );
+
+  clear_full_screen_window( window, target_background_color );
+
+  SDL_Flip( window );
+
+  do_tracker_setup();
+
+  // Wait for user to press escape before continuing
+  while ( !escape_pressed() ) {
+  };
+
+  close_expt_graphics(); // tell EXPTSPPT to release window
+}
+
 int gc_window_trial()
 {
   unsigned int frame_count = 0;
+  int button; /* the button pressed (0 if timeout)  */
 
   // First, set up all the textures
   VideoDisplay display { 1920, 1080, true }; // fullscreen window @ 1920x1080 luma resolution
@@ -142,10 +199,35 @@ int gc_window_trial()
   eyelink_flush_keybuttons( 0 );
 
   const auto start_time = steady_clock::now();
-  auto ts_prev = steady_clock::now();
 
   // Poll for new samples until the diff between samples is large enough to signify LEDs switched
   while ( true ) {
+    // Termination conditions
+    if ( ( error = check_recording() ) != 0 )
+      return error;
+
+    if ( break_pressed() ) /* check for program termination or ALT-F4 or CTRL-C keys */
+    {
+      end_trial();       /* local function to stop recording */
+      return ABORT_EXPT; /* return this code to terminate experiment */
+    }
+
+    if ( escape_pressed() ) /* check for local ESC key to abort trial (useful in debugging)    */
+    {
+      end_trial();       /* local function to stop recording */
+      return SKIP_TRIAL; /* return this code if trial terminated */
+    }
+
+    /* BUTTON RESPONSE TEST */
+    /* Check for eye-tracker buttons pressed */
+    /* This is the preferred way to get response data or end trials	 */
+    button = eyelink_last_button_press( NULL );
+    if ( button != 0 ) /* button number, or 0 if none pressed */
+    {
+      end_trial(); /* local function to stop recording */
+      break;       /* exit trial loop */
+    }
+
     // check for new sample update
     if ( eyelink_newest_float_sample( NULL ) > 0 ) {
       eyelink_newest_float_sample( &evt );
@@ -155,8 +237,11 @@ int gc_window_trial()
 
       // make sure pupil is present
       if ( x_sample != MISSING_DATA && y_sample != MISSING_DATA && evt.fs.pa[eye_used] > 0 ) {
-        // TODO: Draw a dot where we are looking
-        /* top left box white (235 = max luma in typical Y'CbCr colorspace) */
+        // TODO: Draw a dot where we are looking. This is currently very naive,
+        // we should be able to draw a dot faster. Right now, this is limiting
+        // our FPS to about 77fps.
+       
+        /* draw cursor location (235 = max luma in typical Y'CbCr colorspace) */
         Raster420 cursor { 1920, 1080 };
 
         for ( unsigned int y = 0; y < cursor.Y.height(); y++ ) {
@@ -171,22 +256,17 @@ int gc_window_trial()
 
         Texture420 cursor_texture { cursor };
 
-        const auto ts = steady_clock::now();
-        const auto tdiff = duration_cast<milliseconds>( ts - ts_prev ).count();
-        if ( tdiff >= 4 ) {
-          // Draw texture. Note this may introduce extra delay since this is
-          // computing a texture each update.
-          display.draw( cursor_texture );
+        // Draw texture. Note this may introduce extra delay since this is
+        // computing a texture each update.
+        display.draw( cursor_texture );
 
-          frame_count++;
-          ts_prev = ts;
+        frame_count++;
 
-          if ( frame_count % 480 == 0 ) {
-            const auto now = steady_clock::now();
-            const auto ms_elapsed = duration_cast<milliseconds>( now - start_time ).count();
-            cout << "Drew " << frame_count << " frames in " << ms_elapsed
-                 << " milliseconds = " << 1000.0 * double( frame_count ) / ms_elapsed << " frames per second.\n";
-          }
+        if ( frame_count % 480 == 0 ) {
+          const auto now = steady_clock::now();
+          const auto ms_elapsed = duration_cast<milliseconds>( now - start_time ).count();
+          cout << "Drew " << frame_count << " frames in " << ms_elapsed
+               << " milliseconds = " << 1000.0 * double( frame_count ) / ms_elapsed << " frames per second.\n";
         }
       }
     }
@@ -197,6 +277,9 @@ int gc_window_trial()
 
 int run_trials()
 {
+
+  do_calibration();
+
   for ( unsigned int trial = 0; trial < NUM_TRIALS; trial++ ) {
     // abort if link is closed
     if ( eyelink_is_connected() == 0 || break_pressed() ) {
