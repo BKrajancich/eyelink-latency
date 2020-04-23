@@ -18,5 +18,6 @@ pupil_labs_LDADD = $(LIBZMQ_LIBS) $(MSGPACK_LIBS)
 gazedraw_SOURCES = gazedraw.cc
 gazedraw_LDADD = ../util/libgldemoutil.a $(GLU_LIBS) $(GLEW_LIBS) $(GLFW3_LIBS) $(PANGOCAIRO_LIBS) $(LIBZMQ_LIBS) $(MSGPACK_LIBS)
 
+# TODO: we should incporate openvr sources and build ourselves
 hellovr_SOURCES = hellovr.cc
-hellovr_LDADD = $(GLU_LIBS) $(GLEW_LIBS) $(GLFW3_LIBS) $(PANGOCAIRO_LIBS) $(LIBZMQ_LIBS) $(MSGPACK_LIBS)
+hellovr_LDADD = -L/home/brooke/.local/share/Steam/steamapps/common/SteamVR/bin/linux64/ -L/home/brooke/.local/share/Steam/ubuntu12_32/steam-runtime/lib/x86_64-linux-gnu/ -L/home/brooke/.local/share/Steam/ubuntu12_32/steam-runtime/usr/lib/x86_64-linux-gnu/ -L/home/brooke/.local/share/Steam/steamapps/common/SteamVR/bin/linux64/qt/lib/ -L/home/brooke/repos/openvr/lib/linux64/ /home/brooke/repos/openvr/bin/linux64/libopenvr_api.so ../util/libgldemoutil.a 

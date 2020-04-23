@@ -177,7 +177,7 @@ int gc_window_trial()
   float x_sample, y_sample;
 
   // Ensure Eyelink has enough time to switch modes
-  set_offline_mode(); 
+  set_offline_mode();
   pump_delay( 50 );
 
   // Start data streaming
@@ -214,14 +214,14 @@ int gc_window_trial()
 
     if ( break_pressed() ) /* check for program termination or ALT-F4 or CTRL-C keys */
     {
-      end_trial();       /* local function to stop recording */
+      end_trial(); /* local function to stop recording */
       log.close();
       return ABORT_EXPT; /* return this code to terminate experiment */
     }
 
     if ( escape_pressed() ) /* check for local ESC key to abort trial (useful in debugging)    */
     {
-      end_trial();       /* local function to stop recording */
+      end_trial(); /* local function to stop recording */
       log.close();
       return SKIP_TRIAL; /* return this code if trial terminated */
     }
@@ -251,7 +251,7 @@ int gc_window_trial()
         // TODO: Draw a dot where we are looking. This is currently very naive,
         // we should be able to draw a dot faster. Right now, this is limiting
         // our FPS to about 77fps.
-       
+
         /* draw cursor location (235 = max luma in typical Y'CbCr colorspace) */
         Raster420 cursor { 1920, 1080 };
 

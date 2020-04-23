@@ -9,7 +9,8 @@ AC_CONFIG_HEADERS([config.h])
 
 # Add picky CXXFLAGS
 CXX17_FLAGS="-std=c++17 -pthread"
-PICKY_CXXFLAGS="-Wpedantic -Wall -Wextra -Weffc++ -Werror"
+# PICKY_CXXFLAGS="-Wpedantic -Wall -Wextra -Weffc++ -Werror"
+PICKY_CXXFLAGS="-Wpedantic -Wall -Wextra -Weffc++"
 AC_SUBST([CXX17_FLAGS])
 AC_SUBST([PICKY_CXXFLAGS])
 

@@ -21,7 +21,7 @@
 
 #include <iostream>
 #include <iomanip>
-#include "Vectors.h"
+#include "vectors.h"
 
 ///////////////////////////////////////////////////////////////////////////
 // 2x2 matrix
