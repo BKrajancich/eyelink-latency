@@ -61,6 +61,36 @@ void program_body()
   pause();
 }
 
+void writeTextRaster(Raster420 & yuv_raster, float pos_x, float pos_y) {
+    Cairo cairo { 1920, 1080 };
+    Pango pango { cairo };
+    cairo_new_path( cairo );
+
+    Pango::Font myfont { "Times New Roman, 80" };
+    Pango::Text mystring { cairo, pango, myfont, "Eye" };
+    mystring.draw_centered_at( cairo, pos_x * 1920, pos_y * 1080);
+    cairo_set_source_rgba( cairo, 1, 1, 1, 1 );
+    cairo_fill( cairo );
+    cairo.flush();
+
+    unsigned int stride = cairo.stride();
+    for ( unsigned int y = 0; y < 1080; y++ ) {
+      for ( unsigned int x = 0; x < 1920; x++ ) {
+        yuv_raster.Y.at( x, y ) = cairo.pixels()[y * stride + 1 + ( x * 4 )];
+      }
+    }
+  
+}
+
+void test(float pos_x) {
+  VideoDisplay display { 1920, 1080, false }; // fullscreen window @ 1920x1080 luma resolution
+  Raster420 yuv_raster { 1920, 1080 };
+  writeTextRaster(yuv_raster, pos_x, 0.5);
+  Texture420 texture { yuv_raster };
+  display.draw( texture );
+  pause();
+}
+
 int main()
 {
   try {
