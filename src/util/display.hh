@@ -67,6 +67,7 @@ public:
   void draw( Texture420& image );
   void repaint();
   void resize( const unsigned int width, const unsigned int height );
+  void updateOrientation( const int roll, const int pitch );
 
   Window& window() { return current_context_window_.window_; }
   const Window& window() const { return current_context_window_.window_; }

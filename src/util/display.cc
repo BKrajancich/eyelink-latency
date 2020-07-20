@@ -31,21 +31,22 @@
 using namespace std;
 
 const string VideoDisplay::shader_source_scale_from_pixel_coordinates = R"( #version 130
-
+      
       uniform uvec2 window_size;
 
       in vec2 position;
       in vec2 chroma_texcoord;
-      out vec2 raw_position;
+      out vec2 Y_texcoord;
       out vec2 uv_texcoord;
 
       void main()
       {
         gl_Position = vec4( 2 * position.x / window_size.x - 1.0,
                             1.0 - 2 * position.y / window_size.y, 0.0, 1.0 );
-        raw_position = vec2( position.x, position.y );
+        Y_texcoord = vec2( position.x, position.y );
         uv_texcoord = vec2( chroma_texcoord.x, chroma_texcoord.y );
       }
+
     )";
 
 /* octave> 255 * inv([219*[.7152 .0722 .2126]'
@@ -55,7 +56,6 @@ const string VideoDisplay::shader_source_scale_from_pixel_coordinates = R"( #ver
 /* switched to SMPTE 170M matrix (1/21/2017)
 >> 255 * inv([219*[.587 .114 .299]' 224*[-.331 .500 -.169]' 224*[-.419 -.081 .5]']')
 ans =
-
       1.16438356164384    -0.391260370716072    -0.813004933873461
       1.16438356164384      2.01741475897078   0.00112725996069348
       1.16438356164384  -0.00105499970680283      1.59567019581339
@@ -70,13 +70,49 @@ const string VideoDisplay::shader_source_ycbcr = R"( #version 130
       uniform sampler2DRect uTex;
       uniform sampler2DRect vTex;
 
+      in vec2 Y_texcoord;
       in vec2 uv_texcoord;
-      in vec2 raw_position;
+
       out vec4 outColor;
 
+      mat3 camMat = mat3(0.0015, 0, -1.4286,
+                         0, 0.0015, -0.08036,
+                         0, 0, 1);
+
+      mat3 rotation( float rotX, float rotY, float rotZ ) {
+        mat3 R_x = mat3(	1.0,		0,			0,
+                0, 	cos(rotX),	-sin(rotX),
+                0, 	sin(rotX),	 cos(rotX));
+
+        mat3 R_y = mat3( cos(rotY),	0, sin(rotY),
+                0, 	1.0,	0,
+                -sin(rotY), 	0,	 cos(rotY));
+
+        mat3 R_z = mat3( cos(rotZ),	-sin(rotZ), 0,
+                sin(rotZ),	 cos(rotZ),	0,
+                0, 	0,	 1.0);
+                
+        return R_z * R_y * R_x;        
+      }
+
+      vec2 reproject( in vec2 texcoord ) {
+        vec3 xyz = vec3( texcoord, 1.0 );
+        vec3 xyz_norm = xyz / length (xyz);
+        vec3 ray3d = rotation(-0.5, 3, 1.4) * camMat * xyz_norm;
+        
+        float theta = atan( ray3d.y / sqrt(ray3d.z * ray3d.x + ray3d.z * ray3d.z) );
+        float phi = atan( ray3d.x / ray3d.z );
+        vec2 xy_sphere = vec2( (((phi * 1920) / 3.14 + 1920) / 2) , (theta + (3.14/2)) * 1080 / 3.14);
+        return xy_sphere;
+      }
+
+
       void main()
-      {
-        float fY = texture(yTex, raw_position).x;
+      { 
+        vec2 Y_reprojected = reproject(Y_texcoord);
+        vec2 uv_reprojected = reproject(uv_texcoord);
+        
+        float fY = texture(yTex, Y_texcoord).x;
         float fCb = texture(uTex, uv_texcoord).x;
         float fCr = texture(vTex, uv_texcoord).x;
 
@@ -86,7 +122,9 @@ const string VideoDisplay::shader_source_ycbcr = R"( #version 130
           max(0, min(1.0, 1.16438356164384 * (fY - 0.06274509803921568627) + 2.01741475897078  * (fCb - 0.50196078431372549019))),
           1.0
         );
+
       }
+
     )";
 
 VideoDisplay::CurrentContextWindow::CurrentContextWindow( const unsigned int width,
@@ -123,7 +161,7 @@ VideoDisplay::VideoDisplay( const unsigned int width, const unsigned int height,
   glEnableVertexAttribArray( texture_shader_program_.attribute_location( "chroma_texcoord" ) );
 
   const auto window_size = window().framebuffer_size();
-  resize( window_size.first, window_size.second );
+  resize( window_size.first, window_size.second);
 
   glCheck( "VideoDisplay constructor" );
 }
@@ -165,6 +203,13 @@ void VideoDisplay::resize( const unsigned int width, const unsigned int height )
   texture_shader_program_.use();
 
   glCheck( "after installing shaders" );
+}
+
+void VideoDisplay::updateOrientation( const int roll, const int pitch ) 
+{
+  texture_shader_program_.use();
+  glUniform2i( texture_shader_program_.uniform_location( "roll" ), roll, pitch );
+  texture_shader_array_object_.bind();
 }
 
 void VideoDisplay::draw( Texture420& image )
