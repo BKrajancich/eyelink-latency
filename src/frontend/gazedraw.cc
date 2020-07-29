@@ -148,7 +148,7 @@ int gazeUpdate(float & pos_x)
 
 int main()
 {
-  try {}   
+  try {   
     VideoDisplay display { 1920, 1080, false }; // fullscreen window @ 1920x1080 luma resolution
     Raster420 yuv_raster { 1920, 1080 };
     float pos_x;
