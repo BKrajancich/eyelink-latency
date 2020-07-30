@@ -37,9 +37,53 @@ void writeTextRaster(Raster420 & yuv_raster, float pos_x, float pos_y) {
       for ( unsigned int x = 0; x < SCREEN_RES_X; x++ ) {
         yuv_raster.Y.at( x, y ) = cairo.pixels()[y * stride + 1 + ( x * 4 )];
       }
-    }
-  
+    } 
 }
+
+void writePNGRaster(Raster420 & yuv_raster) {
+  Cairo cairo { SCREEN_RES_X, SCREEN_RES_Y };
+
+  /* open the PNG */
+  PNGSurface png_image { "/home/brooke/repos/eyelink-latency/src/files/frame92_resized.png" };
+
+  /* draw the PNG */
+  cairo_identity_matrix( cairo );
+  //cairo_scale( cairo, 0.234375, 0.263671875 );
+  //cairo_scale( cairo, 0.5, 0.52734375 );
+  cairo_scale(cairo, 1.0, 1.0);
+  double center_x = 0, center_y = 0;
+  cairo_device_to_user( cairo, &center_x, &center_y );
+  cairo_translate( cairo, center_x, center_y );
+  cairo_set_source_surface( cairo, png_image, 0, 0 );
+  cairo_paint( cairo );
+
+  /* finish and copy to YUV raster */
+  cairo.flush();
+
+  unsigned int stride = cairo.stride();
+  for ( unsigned int y = 0; y < SCREEN_RES_Y; y++ ) {
+    for ( unsigned int x = 0; x < SCREEN_RES_X; x++ ) {
+      float red = cairo.pixels()[y * stride + 2 + ( x * 4 )] / 255.0;
+      float green = cairo.pixels()[y * stride + 1 + ( x * 4 )] / 255.0;
+      float blue = cairo.pixels()[y * stride + 0 + ( x * 4 )] / 255.0;
+
+      const float Ey = 0.7154  * green + 0.0721 * blue + 0.2125 * red;
+      const float Epb = -0.386 * green + 0.5000 * blue - 0.115 * red;
+      const float Epr = -0.454 * green - 0.046  * blue + 0.500 * red;
+
+      const uint8_t Y = (219 * Ey) + 16;
+      const uint8_t Cb = (224 * Epb) + 128;
+      const uint8_t Cr = (224 * Epr) + 128;
+
+      yuv_raster.Y.at( x, y ) = Y;
+      if ( (x%2) == 0 and (y%2) == 0 ) {
+        yuv_raster.Cb.at( x / 2, y / 2 ) = Cb;
+        yuv_raster.Cr.at( x / 2, y / 2 ) = Cr;
+      }
+    }
+  }
+}
+
 
 //-----------------------------------------------------------------------------
 // Purpose:
@@ -273,6 +317,9 @@ void CMainApplication::RunMainLoop()
   bool bQuit = false;
   VideoDisplay display { SCREEN_RES_X, SCREEN_RES_Y, false }; // fullscreen window @ 1920x1080 luma resolution
   Raster420 yuv_raster { SCREEN_RES_X, SCREEN_RES_Y };
+  writePNGRaster(yuv_raster);
+  Texture420 texture { yuv_raster };
+
   vr::HmdVector3_t head_position_start;
   UpdateHMDMatrixPose(head_position_start);
 
@@ -281,10 +328,12 @@ void CMainApplication::RunMainLoop()
   while ( !bQuit ) {
 
     UpdateHMDMatrixPose(head_position);
-
-    writeTextRaster(yuv_raster, 0.5 - ( head_position.v[0] - head_position_start.v[0] ), 0.5 + head_position.v[1] - head_position_start.v[1]);
-    Texture420 texture { yuv_raster };
+    int roll = 0;
+    int pitch = 0;
+    int yaw = 0;
+  
     display.draw( texture );
+    display.update_head_orientation( roll, pitch, yaw );
 
   }
 }

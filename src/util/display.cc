@@ -2,18 +2,14 @@
 
 /* Copyright 2013-2018 the Alfalfa authors
                        and the Massachusetts Institute of Technology
-
    Redistribution and use in source and binary forms, with or without
    modification, are permitted provided that the following conditions are
    met:
-
       1. Redistributions of source code must retain the above copyright
          notice, this list of conditions and the following disclaimer.
-
       2. Redistributions in binary form must reproduce the above copyright
          notice, this list of conditions and the following disclaimer in the
          documentation and/or other materials provided with the distribution.
-
    THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
    "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
    LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
@@ -31,19 +27,16 @@
 using namespace std;
 
 const string VideoDisplay::shader_source_scale_from_pixel_coordinates = R"( #version 130
-
       uniform uvec2 window_size;
-
       in vec2 position;
       in vec2 chroma_texcoord;
-      out vec2 raw_position;
+      out vec2 Y_texcoord;
       out vec2 uv_texcoord;
-
       void main()
       {
         gl_Position = vec4( 2 * position.x / window_size.x - 1.0,
                             1.0 - 2 * position.y / window_size.y, 0.0, 1.0 );
-        raw_position = vec2( position.x, position.y );
+        Y_texcoord = vec2( position.x, position.y );
         uv_texcoord = vec2( chroma_texcoord.x, chroma_texcoord.y );
       }
     )";
@@ -55,7 +48,6 @@ const string VideoDisplay::shader_source_scale_from_pixel_coordinates = R"( #ver
 /* switched to SMPTE 170M matrix (1/21/2017)
 >> 255 * inv([219*[.587 .114 .299]' 224*[-.331 .500 -.169]' 224*[-.419 -.081 .5]']')
 ans =
-
       1.16438356164384    -0.391260370716072    -0.813004933873461
       1.16438356164384      2.01741475897078   0.00112725996069348
       1.16438356164384  -0.00105499970680283      1.59567019581339
@@ -63,23 +55,56 @@ ans =
 
 const string VideoDisplay::shader_source_ycbcr = R"( #version 130
       #extension GL_ARB_texture_rectangle : enable
-
       precision mediump float;
-
       uniform sampler2DRect yTex;
       uniform sampler2DRect uTex;
       uniform sampler2DRect vTex;
-
+      uniform vec3 head_orientation;
+      in vec2 Y_texcoord;
       in vec2 uv_texcoord;
-      in vec2 raw_position;
-      out vec4 outColor;
-
+      out vec4 outColor;   
+      mat3 eul2rotm( float rotX, float rotY, float rotZ ) {
+        mat3 R_x = mat3(	1.0f,		0f,			0f,
+              0f, 	cos(rotX),	sin(rotX),
+              0f, 	-sin(rotX),	 cos(rotX));
+        mat3 R_y = mat3( cos(rotY),	0f, -sin(rotY),
+                0f, 	1.0f,	0f,                                               
+                sin(rotY), 	0f,	 cos(rotY));
+        mat3 R_z = mat3( cos(rotZ),	sin(rotZ), 0f,
+                -sin(rotZ),	 cos(rotZ),	0f,
+                0f, 	0f,	 1.0f);
+        mat3 invCamMat = mat3(0.0015f, 0f, 0f,
+                          0f, 0.0015f, 0f,
+                          -1.4286f, -0.8036f, 1f);
+           
+        return R_z * R_y * R_x * invCamMat;        
+      }  
+      vec2 get_latlong( vec2 Y_texcoord ) {
+        vec3 xyz = vec3( Y_texcoord.x, Y_texcoord.y, 1.0 );
+        vec3 xyz_norm = xyz / length(xyz);
+        
+        vec3 ray3d = eul2rotm(head_orientation.x, head_orientation.y, head_orientation.z) * xyz_norm;        
+        float theta = atan( ray3d.y, length(ray3d.xz) );
+        float phi = atan( ray3d.x, ray3d.z );
+        return vec2( phi, theta);
+      }
+      vec2 reproject_Y (vec2 Y_texcoord ) {
+        vec2 phi_theta = get_latlong(Y_texcoord);
+        vec2 xy_sphere = vec2( ((phi_theta.x / 3.14f) * 1920f + 1920.0)/2.0, (phi_theta.y + 3.14/2.0) * 1080f /3.14 );
+        return xy_sphere;
+      }
+      vec2 reproject_uv( vec2 Y_texcoord ) {
+        vec2 phi_theta = get_latlong(Y_texcoord);
+        vec2 xy_sphere = vec2( ((phi_theta.x / 3.14f) * 960f + 960.0)/2.0, (phi_theta.y + 3.14/2.0) * 540f /3.14 );
+        return xy_sphere;
+      }
       void main()
       {
-        float fY = texture(yTex, raw_position).x;
-        float fCb = texture(uTex, uv_texcoord).x;
-        float fCr = texture(vTex, uv_texcoord).x;
-
+        vec2 Y_reprojected = reproject_Y(Y_texcoord);
+        vec2 uv_reprojected = reproject_uv(Y_texcoord) + max( 0.0, min( 0.0, texture(uTex, uv_texcoord).x ) );  // to get rid of inefficiency bug
+        float fY = texture(yTex, Y_reprojected).x;
+        float fCb = texture(uTex, uv_reprojected).x;
+        float fCr = texture(vTex, uv_reprojected).x;
         outColor = vec4(
           max(0, min(1.0, 1.16438356164384 * (fY - 0.06274509803921568627) + 1.59567019581339  * (fCr - 0.50196078431372549019))),
           max(0, min(1.0, 1.16438356164384 * (fY - 0.06274509803921568627) - 0.391260370716072 * (fCb - 0.50196078431372549019) - 0.813004933873461 * (fCr - 0.50196078431372549019))),
@@ -126,6 +151,12 @@ VideoDisplay::VideoDisplay( const unsigned int width, const unsigned int height,
   resize( window_size.first, window_size.second );
 
   glCheck( "VideoDisplay constructor" );
+}
+
+void VideoDisplay::update_head_orientation( const float x, const float y, const float z )
+{
+  texture_shader_program_.use();
+  glUniform3f( texture_shader_program_.uniform_location( "head_orientation" ), x, y, z );
 }
 
 void VideoDisplay::resize( const unsigned int width, const unsigned int height )
@@ -186,5 +217,4 @@ void VideoDisplay::repaint()
   glDrawArrays( GL_TRIANGLE_FAN, 0, 4 );
 
   current_context_window_.window_.swap_buffers();
-  glFinish();
 }
