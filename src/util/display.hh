@@ -58,7 +58,7 @@ private:
   VertexBufferObject other_vertices_ = {};
 
 public:
-  VideoDisplay( const unsigned int width, const unsigned int height, const bool fullscreen = false );
+  VideoDisplay( const unsigned int width, const unsigned int height, const bool fullscreen = false, const bool vr_view = false);
 
   void draw( Texture420& image );
   void repaint();

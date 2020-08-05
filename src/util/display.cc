@@ -60,9 +60,13 @@ const string VideoDisplay::shader_source_ycbcr = R"( #version 130
       uniform sampler2DRect uTex;
       uniform sampler2DRect vTex;
       uniform vec3 head_orientation;
+      uniform int vr_view;
       in vec2 Y_texcoord;
       in vec2 uv_texcoord;
       out vec4 outColor;   
+
+      vec2 screen_res = vec2( 1920.0, 1080.0 );
+
       mat3 eul2rotm( float rotX, float rotY, float rotZ ) {
         mat3 R_x = mat3(	1.0f,		0f,			0f,
               0f, 	cos(rotX),	sin(rotX),
@@ -90,19 +94,23 @@ const string VideoDisplay::shader_source_ycbcr = R"( #version 130
       }
       vec2 reproject_Y (vec2 Y_texcoord ) {
         vec2 phi_theta = get_latlong(Y_texcoord);
-        vec2 xy_sphere = vec2( ((phi_theta.x / 3.14f) * 1920f + 1920.0)/2.0, (phi_theta.y + 3.14/2.0) * 1080f /3.14 );
+        vec2 xy_sphere = vec2( ((phi_theta.x / 3.14f) * screen_res.x + screen_res.x)/2.0, (phi_theta.y + 3.14/2.0) * screen_res.y /3.14 );
         return xy_sphere;
       }
       vec2 reproject_uv( vec2 Y_texcoord ) {
         vec2 phi_theta = get_latlong(Y_texcoord);
-        vec2 xy_sphere = vec2( ((phi_theta.x / 3.14f) * 960f + 960.0)/2.0, (phi_theta.y + 3.14/2.0) * 540f /3.14 );
+        vec2 xy_sphere = vec2( ((phi_theta.x / 3.14f) * (screen_res.x/2.0) + (screen_res.x/2.0))/2.0, (phi_theta.y + 3.14/2.0) * (screen_res.y/2.0) /3.14 );
         return xy_sphere;
       }
       void main()
       {
-        vec2 Y_reprojected = reproject_Y(Y_texcoord);
-        vec2 uv_reprojected = reproject_uv(Y_texcoord) + max( 0.0, min( 0.0, texture(uTex, uv_texcoord).x ) );  // to get rid of inefficiency bug
-        float fY = texture(yTex, Y_reprojected).x;
+        if (vr_view == 1) {
+           screen_res = vec2( 1440.0, 1600.0 );
+        }
+
+        vec2 Y_reprojected = reproject_Y(mod(Y_texcoord, screen_res.x));
+        vec2 uv_reprojected = reproject_uv(mod(Y_texcoord, screen_res.x)) + max( 0.0, min( 0.0, texture(uTex, uv_texcoord).x ) );  // to get rid of inefficiency bug
+        float fY = texture(yTex, Y_reprojected + vr_view).x;
         float fCb = texture(uTex, uv_reprojected).x;
         float fCr = texture(vTex, uv_reprojected).x;
         outColor = vec4(
@@ -123,7 +131,7 @@ VideoDisplay::CurrentContextWindow::CurrentContextWindow( const unsigned int wid
   window_.make_context_current();
 }
 
-VideoDisplay::VideoDisplay( const unsigned int width, const unsigned int height, const bool fullscreen )
+VideoDisplay::VideoDisplay( const unsigned int width, const unsigned int height, const bool fullscreen, const bool vr_view )
   : width_( width )
   , height_( height )
   , current_context_window_( width_, height_, "OpenGL Example", fullscreen )
@@ -149,6 +157,15 @@ VideoDisplay::VideoDisplay( const unsigned int width, const unsigned int height,
 
   const auto window_size = window().framebuffer_size();
   resize( window_size.first, window_size.second );
+
+  int vr_flag = 0;
+
+  if (vr_view) {
+    vr_flag = 1;
+  }
+
+  texture_shader_program_.use();
+  glUniform1i( texture_shader_program_.uniform_location( "vr_view" ), vr_flag );
 
   glCheck( "VideoDisplay constructor" );
 }
