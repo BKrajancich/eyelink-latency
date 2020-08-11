@@ -1,4 +1,4 @@
-
+ 
 #include <chrono>
 #include <cstring>
 #include <exception>
@@ -567,6 +567,16 @@ void CMainApplication::RunMainLoop()
 
   vr::HmdQuaternion_t head_quaternion;
 
+  Matrix4 m_mat4ProjectionLeft = GetHMDMatrixProjectionEye( vr::Eye_Left );
+	Matrix4 m_mat4ProjectionRight = GetHMDMatrixProjectionEye( vr::Eye_Right );
+
+  Matrix4 m_mat4eyePosLeft = GetHMDMatrixPoseEye( vr::Eye_Left );
+	Matrix4 m_mat4eyePosRight = GetHMDMatrixPoseEye( vr::Eye_Right );
+
+  //std::cout << "projL: " << m_mat4eyePosLeft << std::endl;
+  //std::cout << "projR: " << m_mat4eyePosRight << std::endl;
+
+
   while ( !bQuit ) {
 
     UpdateHMDMatrixPose(head_quaternion);
@@ -575,7 +585,7 @@ void CMainApplication::RunMainLoop()
     //std::cout << "roll: " << head_orientation.v[0] << std::endl;
   
     display.draw( texture );
-    display.update_head_orientation( head_orientation.v[0], -head_orientation.v[1], -head_orientation.v[2] );
+    display.update_head_orientation( -head_orientation.v[0], head_orientation.v[1], -head_orientation.v[2] );
 
   }
 }
