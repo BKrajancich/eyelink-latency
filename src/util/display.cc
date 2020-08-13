@@ -104,11 +104,11 @@ const string VideoDisplay::shader_source_ycbcr = R"( #version 130
       mat4 eyePos_L = mat4(1.0f, 0.0f, 0.0f, 0.0f,
                            0.0f, 1.0f, 0.0f, 0.0f,
                            0.0f, 0.0f, 1.0f, 0.0f,
-                           -0.3345f, 0.0f, -0.15f, 1.0f);
+                           -0.03345f, 0.0f, -0.15f, 1.0f);
       mat4 eyePos_R = mat4(1.0f, 0.0f, 0.0f, 0.0f,
                            0.0f, 1.0f, 0.0f, 0.0f,
                            0.0f, 0.0f, 1.0f, 0.0f,
-                           0.3345f, 0.0f, -0.15f, 1.0f);
+                           0.03345f, 0.0f, -0.15f, 1.0f);
 
       vec2 get_latlong( vec2 texcoord ) {
 
@@ -118,10 +118,10 @@ const string VideoDisplay::shader_source_ycbcr = R"( #version 130
         
         mat4 transform;
 
-        if (texcoord.x < 1440.0) {
-          transform = eyePos_R * invCamMat_HMD_L;
+        if (Y_texcoord.x < 1440.0) {
+          transform = invCamMat_HMD_L * eyePos_L;
         } else {
-          transform = eyePos_L * invCamMat_HMD_R;
+          transform = invCamMat_HMD_R * eyePos_R;
         }
 
         vec4 ray4d = eul2rotm4(head_orientation.x, head_orientation.y, head_orientation.z) * transform * clip;     
