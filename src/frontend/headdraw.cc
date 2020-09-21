@@ -17,32 +17,11 @@
 using namespace std;
 using namespace std::chrono;
 
-#define VR_VIEW 1
-//#define SCREEN_RES_X 2880
-//#define SCREEN_RES_Y 1600
-
-// void writeTextRaster(Raster420 & yuv_raster, float pos_x, float pos_y) {
-//     Cairo cairo { SCREEN_RES_X, SCREEN_RES_Y };
-//     Pango pango { cairo };
-//     cairo_new_path( cairo );
-
-//     Pango::Font myfont { "Times New Roman, 80" };
-//     Pango::Text mystring { cairo, pango, myfont, "Eye" };
-//     mystring.draw_centered_at( cairo, pos_x * SCREEN_RES_X/2, pos_y * SCREEN_RES_Y/2);
-//     cairo_set_source_rgba( cairo, 1, 1, 1, 1 );
-//     cairo_fill( cairo );
-//     cairo.flush();
-
-//     unsigned int stride = cairo.stride();
-//     for ( unsigned int y = 0; y < SCREEN_RES_Y; y++ ) {
-//       for ( unsigned int x = 0; x < SCREEN_RES_X; x++ ) {
-//         yuv_raster.Y.at( x, y ) = cairo.pixels()[y * stride + 1 + ( x * 4 )];
-//       }
-//     } 
-// }
+#define IMG_DIM_X 3840
+#define IMG_DIM_Y 2048
 
 void writePNGRaster(Raster420 & yuv_raster) {
-  Cairo cairo { 1920, 1080 };
+  Cairo cairo { IMG_DIM_X, IMG_DIM_Y };
 
   /* open the PNG */
   PNGSurface png_image { "/home/brooke/repos/eyelink-latency/src/files/frame92.png" };
@@ -50,8 +29,9 @@ void writePNGRaster(Raster420 & yuv_raster) {
   /* draw the PNG */
   cairo_identity_matrix( cairo );
   //cairo_scale( cairo, 0.234375, 0.263671875 );
-  cairo_scale( cairo, 0.5, 0.52734375 );
-  //cairo_scale(cairo, 1.0, 1.0);
+  //cairo_scale( cairo, 0.5, 0.52734375 );
+  //cairo_scale( cairo, 0.5333, 0.6 );
+  cairo_scale(cairo, 1.0, 1.0);
   double center_x = 0, center_y = 0;
   cairo_device_to_user( cairo, &center_x, &center_y );
   cairo_translate( cairo, center_x, center_y );
@@ -62,8 +42,8 @@ void writePNGRaster(Raster420 & yuv_raster) {
   cairo.flush();
 
   unsigned int stride = cairo.stride();
-  for ( unsigned int y = 0; y < 1080; y++ ) {
-    for ( unsigned int x = 0; x < 1920; x++ ) {
+  for ( unsigned int y = 0; y < IMG_DIM_Y; y++ ) {
+    for ( unsigned int x = 0; x < IMG_DIM_X; x++ ) {
       float red = cairo.pixels()[y * stride + 2 + ( x * 4 )] / 255.0;
       float green = cairo.pixels()[y * stride + 1 + ( x * 4 )] / 255.0;
       float blue = cairo.pixels()[y * stride + 0 + ( x * 4 )] / 255.0;
@@ -104,7 +84,11 @@ public:
   Matrix4 GetHMDMatrixProjectionEye( vr::Hmd_Eye nEye );
   Matrix4 GetHMDMatrixPoseEye( vr::Hmd_Eye nEye );
   Matrix4 GetCurrentViewProjectionMatrix( vr::Hmd_Eye nEye );
-  void UpdateHMDMatrixPose(vr::HmdQuaternion_t& head_quaternion);
+  void UpdateHMDMatrixPose(vr::HmdQuaternion_t& head_quaternion, vr::HmdVector3_t& head_position);
+  Matrix4 GetTranslationMatrix(const vr::HmdVector3_t& head_position);
+  Matrix4 GetRotationMatrix(const vr::HmdQuaternion_t& q);
+  Matrix4 eul2rotm4( float rotX, float rotY, float rotZ );
+  Matrix4 getViewMat( Matrix4 eyeMat , Matrix4 posMat );
 
   void printDevicePositionalData( const char* deviceName,
                                   const char devClass,
@@ -293,8 +277,6 @@ bool CMainApplication::BInit()
   m_strDriver = "No Driver";
   m_strDisplay = "No Display";
 
-  m_strDriver = GetTrackedDeviceString( vr::k_unTrackedDeviceIndex_Hmd, vr::Prop_TrackingSystemName_String );
-  m_strDisplay = GetTrackedDeviceString( vr::k_unTrackedDeviceIndex_Hmd, vr::Prop_SerialNumber_String );
 
   return true;
 }
@@ -320,22 +302,34 @@ Matrix4 CMainApplication::GetHMDMatrixProjectionEye( vr::Hmd_Eye nEye )
 
   vr::HmdMatrix44_t mat = m_pHMD->GetProjectionMatrix( nEye, m_fNearClip, m_fFarClip );
 
-  return Matrix4( mat.m[0][0],
-                  mat.m[1][0],
-                  mat.m[2][0],
-                  mat.m[3][0],
-                  mat.m[0][1],
-                  mat.m[1][1],
-                  mat.m[2][1],
-                  mat.m[3][1],
-                  mat.m[0][2],
-                  mat.m[1][2],
-                  mat.m[2][2],
-                  mat.m[3][2],
-                  mat.m[0][3],
-                  mat.m[1][3],
-                  mat.m[2][3],
-                  mat.m[3][3] );
+  if (nEye == vr::Eye_Left) {
+    return Matrix4( 0.78113, 0.0, -0.05968, 0.0,
+                     0.0, 0.70275, -0.00295, 0.0,
+                      0.0, 0.0, -1.006, -0.60018,
+                      0.0, 0.0, -1.0, 0.0).transpose();
+  } else {
+    return Matrix4( 0.78113, 0.0, 0.05968, 0.0,
+                     0.0, 0.70275, -0.00295, 0.0,
+                      0.0, 0.0, -1.006, -0.60018,
+                      0.0, 0.0, -1.0, 0.0).transpose();
+  }
+
+  // return Matrix4( mat.m[0][0],
+  //                 mat.m[1][0],
+  //                 mat.m[2][0],
+  //                 mat.m[3][0],
+  //                 mat.m[0][1],
+  //                 mat.m[1][1],
+  //                 mat.m[2][1],
+  //                 mat.m[3][1],
+  //                 mat.m[0][2],
+  //                 mat.m[1][2],
+  //                 mat.m[2][2],
+  //                 mat.m[3][2],
+  //                 mat.m[0][3],
+  //                 mat.m[1][3],
+  //                 mat.m[2][3],
+  //                 mat.m[3][3] );
 }
 
 //-----------------------------------------------------------------------------
@@ -376,6 +370,7 @@ Matrix4 CMainApplication::GetCurrentViewProjectionMatrix( vr::Hmd_Eye nEye )
   Matrix4 matMVP;
   if ( nEye == vr::Eye_Left ) {
     matMVP = m_mat4ProjectionLeft * m_mat4eyePosLeft * m_mat4HMDPose;
+
   } else if ( nEye == vr::Eye_Right ) {
     matMVP = m_mat4ProjectionRight * m_mat4eyePosRight * m_mat4HMDPose;
   }
@@ -403,7 +398,7 @@ vr::HmdVector3_t CMainApplication::GetPosition( vr::HmdMatrix34_t matrix )
 
   vector.v[0] = matrix.m[0][3];
   vector.v[1] = matrix.m[1][3];
-  vector.v[2] = matrix.m[2][3];
+  vector.v[2] = -matrix.m[2][3];
 
   return vector;
 }
@@ -428,11 +423,7 @@ void CMainApplication::printDevicePositionalData( const char* deviceName,
            quaternion.z );
 
   // Uncomment this if you want to print entire transform matrix that contains both position and rotation matrix.
-  // dprintf("\n%lld,%s,%.5f,%.5f,%.5f,x: %.5f,%.5f,%.5f,%.5f,y: %.5f,%.5f,%.5f,%.5f,z: %.5f,qw: %.5f,qx: %.5f,qy:
-  // %.5f,qz: %.5f",
-  //    qpc.QuadPart, whichHand.c_str(),
-  //    posMatrix.m[0][0], posMatrix.m[0][1], posMatrix.m[0][2], posMatrix.m[0][3],
-  //    posMatrix.m[1][0], posMatrix.m[1][1], posMatrix.m[1][2], posMatrix.m[1][3],
+  // dprintf("\n%lld,%s,%.5f,%.5f,%.5f,x: %.5f,%.5f,%.5f,%.5f,y: %.5f,%.5f,%.5f,%.5f,z: %.5f,qw: %.51000.0*
   //    posMatrix.m[2][0], posMatrix.m[2][1], posMatrix.m[2][2], posMatrix.m[2][3],
   //    quaternion.w, quaternion.x, quaternion.y, quaternion.z);
 }
@@ -440,7 +431,7 @@ void CMainApplication::printDevicePositionalData( const char* deviceName,
 //-----------------------------------------------------------------------------
 // Purpose:
 //-----------------------------------------------------------------------------
-void CMainApplication::UpdateHMDMatrixPose(vr::HmdQuaternion_t& head_quaternion)
+void CMainApplication::UpdateHMDMatrixPose(vr::HmdQuaternion_t& head_quaternion, vr::HmdVector3_t& head_position)
 {
   if ( !m_pHMD )
     return;
@@ -484,7 +475,8 @@ void CMainApplication::UpdateHMDMatrixPose(vr::HmdQuaternion_t& head_quaternion)
                                    m_rTrackedDevicePose[nDevice].mDeviceToAbsoluteTracking,
                                    position,
                                    quaternion );
-        head_quaternion = quaternion;                           
+        head_quaternion = quaternion;
+        head_position = position;                           
       }
 
       m_strPoseClasses += m_rDevClassChar[nDevice];
@@ -493,11 +485,12 @@ void CMainApplication::UpdateHMDMatrixPose(vr::HmdQuaternion_t& head_quaternion)
 
   if ( m_rTrackedDevicePose[vr::k_unTrackedDeviceIndex_Hmd].bPoseIsValid ) {
     m_mat4HMDPose = m_rmat4DevicePose[vr::k_unTrackedDeviceIndex_Hmd];
-    m_mat4HMDPose.invert();
+    //m_mat4HMDPose.invert();
   }
 }
 
 vr::HmdVector3_t QuaternionToEulerAngles(vr::HmdQuaternion_t& q) {
+
     vr::HmdVector3_t angles; // defined as [roll, pitch, yaw]
 
     // roll (x-axis rotation)
@@ -545,27 +538,89 @@ Matrix4 CMainApplication::ConvertSteamVRMatrixToMatrix4( const vr::HmdMatrix34_t
   return matrixObj;
 }
 
+Matrix4 CMainApplication::GetTranslationMatrix(const vr::HmdVector3_t& head_position) {
+  Matrix4 matrixObj( 1.0, 0.0, 0.0, 0.0,
+                      0.0, 1.0, 0.0, 0.0,
+                      0.0, 0.0, 1.0, 0.0,
+                      head_position.v[0], head_position.v[1], head_position.v[2], 1.0);
+ //std::cout << "translate: " << matrixObj.getDeterminant() << std::endl;
+  return matrixObj;
+}
+
+Matrix4 CMainApplication::GetRotationMatrix(const vr::HmdQuaternion_t& q) {
+  Matrix4 matrixObj( q.w*q.w + q.x*q.x - q.y*q.y - q.z*q.z, 2*q.x*q.y - 2*q.w*q.z, 2*q.x*q.z + 2*q.w*q.y, 0.0,
+                      2*q.w*q.y + 2*q.w*q.z, q.w*q.w - q.x*q.x+ q.y*q.y - q.z*q.z, 2*q.y*q.z - 2*q.w*q.x, 0.0,
+                      2*q.x*q.z - 2*q.w*q.y, 2*q.y*q.z + 2*q.w*q.x, q.w*q.w - q.x*q.x - q.y*q.y + q.z*q.z, 0.0,
+                      0.0, 0.0, 0.0, 1.0);
+// std::cout << "translate: " << matrixObj.getDeterminant() << std::endl;
+  return matrixObj;
+}
+
+Matrix4 CMainApplication::eul2rotm4( float rotX, float rotY, float rotZ ) {
+  Matrix4 R_x = Matrix4(	1.0,		0.0,			0.0,  0.0,
+        0.0, 	cos(rotX),	sin(rotX), 0.0,
+        0.0, 	-sin(rotX),	 cos(rotX), 0.0,
+        0.0, 0.0, 0.0, 1.0f);
+  Matrix4 R_y = Matrix4( cos(rotY),	0.0, -sin(rotY), 0.0,
+          0.0, 	1.0f,	0.0, 0.0,                                              
+          sin(rotY), 	0.0,	 cos(rotY), 0.0,
+          0.0, 0.0, 0.0, 1.0f);
+  Matrix4 R_z = Matrix4( cos(rotZ),	sin(rotZ), 0.0, 0.0,
+          -sin(rotZ),	 cos(rotZ),	0.0, 0.0,
+          0.0, 	0.0,	 1.0f, 0.0,
+          0.0, 0.0, 0.0, 1.0f);                             
+  
+  return R_z * R_y * R_x;        
+}  
+
+Matrix4 CMainApplication::getViewMat( Matrix4 eyeMat , Matrix4 posMat ) {
+  Matrix4 eyePos = eyeMat * posMat;
+  Matrix4 rot = eyePos;
+  rot[12] = 0;
+  rot[13] = 0;
+  rot[14] = 0;
+  Vector3 look_position = Vector3( eyePos[12], eyePos[13], eyePos[14] );
+  Matrix4 worldMatrix = Matrix4( 1.0, 0.0, 0.0, 0.0,
+                      0.0, 1.0, 0.0, 0.0,
+                      0.0, 0.0, 1.0, 0.0,
+                      eyePos[12], eyePos[13], eyePos[14], 1.0);
+  Vector4 look_up_4 = rot * Vector4(0, 1.0, 0, 0);
+  Vector4 look_at_4 = rot * Vector4(0, 0.0, 1.0, 0);
+
+  Vector3 look_up = Vector3 (look_up_4[0], look_up_4[1], look_up_4[2]);
+  Vector3 look_at = Vector3 (look_at_4[0], look_at_4[1], look_at_4[2]);
+  Vector3 z = (look_at).normalize();
+  Vector3 x = (look_up.cross(z)).normalize();
+  Vector3 y = z.cross(x);
+  Matrix4 viewMat = Matrix4(x[0], y[0], z[0], 0.0,
+                            x[1], y[1], z[1], 0.0,
+                            x[2], y[2], z[2], 0.0,
+                            0.0, 0.0, 0.0, 1.0);
+
+  //std::cout << rot[3] << std::endl;
+
+  return worldMatrix.invert() * viewMat.invert();
+
+  
+  //std::cout << "look up: {" << look_up[0] << ", " << look_up[1] << ", " << look_up[2] << ", " << look_up[3] << "}" << std::endl;
+}  
 
 //-----------------------------------------------------------------------------
 // Purpose:
 //-----------------------------------------------------------------------------
 void CMainApplication::RunMainLoop()
 {
-  uint SCREEN_RES_X = 1920;
-  uint SCREEN_RES_Y = 1080;
-
-  if (VR_VIEW) {
-    SCREEN_RES_X = 2880;
-    SCREEN_RES_Y = 1600;
-  }
+  uint SCREEN_RES_X = 2880;
+  uint SCREEN_RES_Y = 1600;
 
   bool bQuit = false;
-  VideoDisplay display { SCREEN_RES_X, SCREEN_RES_Y, false, VR_VIEW }; // fullscreen window @ 1920x1080 luma resolution
-  Raster420 yuv_raster { 1920, 1080 };
+  VideoDisplay display { SCREEN_RES_X, SCREEN_RES_Y, false }; // fullscreen window @ 1920x1080 luma resolution
+  Raster420 yuv_raster { IMG_DIM_X, IMG_DIM_Y };
   writePNGRaster(yuv_raster);
   Texture420 texture { yuv_raster };
 
   vr::HmdQuaternion_t head_quaternion;
+  vr::HmdVector3_t head_position;
 
   Matrix4 m_mat4ProjectionLeft = GetHMDMatrixProjectionEye( vr::Eye_Left );
 	Matrix4 m_mat4ProjectionRight = GetHMDMatrixProjectionEye( vr::Eye_Right );
@@ -573,19 +628,38 @@ void CMainApplication::RunMainLoop()
   Matrix4 m_mat4eyePosLeft = GetHMDMatrixPoseEye( vr::Eye_Left );
 	Matrix4 m_mat4eyePosRight = GetHMDMatrixPoseEye( vr::Eye_Right );
 
-  //std::cout << "projL: " << m_mat4eyePosLeft << std::endl;
-  //std::cout << "projR: " << m_mat4eyePosRight << std::endl;
 
 
   while ( !bQuit ) {
 
-    UpdateHMDMatrixPose(head_quaternion);
-    vr::HmdVector3_t head_orientation = QuaternionToEulerAngles(head_quaternion);
+    //std::cout << "proj mat: " << GetHMDMatrixProjectionEye( vr::Eye_Left ) << std::endl;
+    //std::cout << "view mat: " << GetHMDMatrixPoseEye( vr::Eye_Left ).invert() << std::endl;
+    //std::cout << "model mat: " << m_mat4HMDPose << std::endl;
 
-    //std::cout << "roll: " << head_orientation.v[0] << std::endl;
-  
+    UpdateHMDMatrixPose(head_quaternion, head_position);    
+    vr::HmdVector3_t head_orientation = QuaternionToEulerAngles(head_quaternion);
+    Matrix4 rot_mat = eul2rotm4(-head_orientation.v[0], head_orientation.v[1], -head_orientation.v[2]);
+
+
+    Matrix4 MVP_L = getViewMat( GetHMDMatrixPoseEye( vr::Eye_Left ) , m_mat4HMDPose ) * GetHMDMatrixProjectionEye( vr::Eye_Left ).invert();
+    Matrix4 MVP_R = getViewMat( GetHMDMatrixPoseEye( vr::Eye_Right ) , m_mat4HMDPose ) * GetHMDMatrixProjectionEye( vr::Eye_Right ).invert();
+
+    //Matrix4 MVP_L =  m_mat4HMDPose.invert() * GetHMDMatrixPoseEye( vr::Eye_Left ).invert() * GetHMDMatrixProjectionEye( vr::Eye_Left ).invert();
+    //Matrix4 MVP_R =  m_mat4HMDPose.invert()  * GetHMDMatrixPoseEye( vr::Eye_Right ).invert() * GetHMDMatrixProjectionEye( vr::Eye_Right ).invert();
+
+    std::cout << "view Mat: " << GetHMDMatrixProjectionEye( vr::Eye_Left ) << std::endl;
+    std::cout << "view Mat inv: " << GetHMDMatrixProjectionEye( vr::Eye_Left ).invert() << std::endl;
+
     display.draw( texture );
-    display.update_head_orientation( -head_orientation.v[0], head_orientation.v[1], -head_orientation.v[2] );
+
+    
+    //float m_L[16] = {MVP_L[0], MVP_L[4], MVP_L[8], MVP_L[12], MVP_L[1], MVP_L[5], MVP_L[9], MVP_L[13], MVP_L[2], MVP_L[6], MVP_L[10], MVP_L[14], MVP_L[3], MVP_L[7], MVP_L[11], MVP_L[15]};
+    //float m_R[16] = {MVP_R[0], MVP_R[4], MVP_R[8], MVP_R[12], MVP_R[1], MVP_R[5], MVP_R[9], MVP_R[13], MVP_R[2], MVP_R[6], MVP_R[10], MVP_R[14], MVP_R[3], MVP_R[7], MVP_R[11], MVP_R[15]};
+    
+    float m_L[16] = {MVP_L[0], MVP_L[1], MVP_L[2], MVP_L[3], MVP_L[4], MVP_L[5], MVP_L[6], MVP_L[7], MVP_L[8], MVP_L[9], MVP_L[10], MVP_L[11], MVP_L[12], MVP_L[13], MVP_L[14], MVP_L[15]};
+    float m_R[16] = {MVP_R[0], MVP_R[1], MVP_R[2], MVP_R[3], MVP_R[4], MVP_R[5], MVP_R[6], MVP_R[7], MVP_R[8], MVP_R[9], MVP_R[10], MVP_R[11], MVP_R[12], MVP_R[13], MVP_R[14], MVP_R[15]};
+    display.update_MVP( m_L, m_R);
+
 
   }
 }

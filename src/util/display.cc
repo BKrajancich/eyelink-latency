@@ -32,6 +32,7 @@ const string VideoDisplay::shader_source_scale_from_pixel_coordinates = R"( #ver
       in vec2 chroma_texcoord;
       out vec2 Y_texcoord;
       out vec2 uv_texcoord;
+
       void main()
       {
         gl_Position = vec4( 2 * position.x / window_size.x - 1.0,
@@ -41,8 +42,7 @@ const string VideoDisplay::shader_source_scale_from_pixel_coordinates = R"( #ver
       }
     )";
 
-/* octave> 255 * inv([219*[.7152 .0722 .2126]'
-                      224*[-0.38542789394266 .5 -0.11457210605734]'
+/* octave> 255 * inv([219*[.7152 .0722 .2126]'view605734]'
                       224*[-0.454152908305817 -0.0458470916941834 .5]']') */
 
 /* switched to SMPTE 170M matrix (1/21/2017)
@@ -59,106 +59,62 @@ const string VideoDisplay::shader_source_ycbcr = R"( #version 130
       uniform sampler2DRect yTex;
       uniform sampler2DRect uTex;
       uniform sampler2DRect vTex;
-      uniform vec3 head_orientation;
-      uniform int vr_view;
+      uniform mat4 MVP_L;
+      uniform mat4 MVP_R;
+
       in vec2 Y_texcoord;
       in vec2 uv_texcoord;
       out vec4 outColor;   
 
-      vec2 screen_res = vec2( 1920.0, 1080.0 ); 
-
-      mat4 eul2rotm4( float rotX, float rotY, float rotZ ) {
-        mat4 R_x = mat4(	1.0f,		0f,			0f,  0f,
-              0f, 	cos(rotX),	sin(rotX), 0f,
-              0f, 	-sin(rotX),	 cos(rotX), 0f,
-              0f, 0f, 0f, 1.0f);
-        mat4 R_y = mat4( cos(rotY),	0f, -sin(rotY), 0f,
-                0f, 	1.0f,	0f, 0f,                                              
-                sin(rotY), 	0f,	 cos(rotY), 0f,
-                0f, 0f, 0f, 1.0f);
-        mat4 R_z = mat4( cos(rotZ),	sin(rotZ), 0f, 0f,
-                -sin(rotZ),	 cos(rotZ),	0f, 0f,
-                0f, 	0f,	 1.0f, 0f,
-                0f, 0f, 0f, 1.0f);
-
-
-                                
-        return R_z * R_y * R_x;        
-      }  
-
-      mat4 invCamMat = mat4(0.0015f, 0f, 0f, 0f,
-                          0f, 0.0015f, 0f, 0f,
-                          -1.4286f, -0.8036f, 1.0f, 0f,
-                          0f, 0f, 0f, 1.0f);
-
-      mat4 invCamMat_HMD_L = mat4(1.27908f, 0f, 0f, 0f,
-                              0f, 1.42243f, 0f, 0f,
-                              0f, 0f, 0f,  -1.66617f,
-                              -0.07645f, -0.00716f, -1.0f, 1.66717f);
-
-      mat4 invCamMat_HMD_R = mat4(1.28131f, 0f, 0f, 0f,
-                              0f, 1.42354f, 0f, 0f,
-                              0f, 0f, 0f, -1.66617f,
-                              0.07635f, -0.00123f, -1.0f, -1.66717f);
-
-      mat4 eyePos_L = mat4(1.0f, 0.0f, 0.0f, 0.0f,
-                           0.0f, 1.0f, 0.0f, 0.0f,
-                           0.0f, 0.0f, 1.0f, 0.0f,
-                           -0.03345f, 0.0f, -0.15f, 1.0f);
-      mat4 eyePos_R = mat4(1.0f, 0.0f, 0.0f, 0.0f,
-                           0.0f, 1.0f, 0.0f, 0.0f,
-                           0.0f, 0.0f, 1.0f, 0.0f,
-                           0.03345f, 0.0f, -0.15f, 1.0f);
+      vec2 screen_res = vec2( 1440.0, 1600.0 );
+      vec2 tex_res = vec2( 3840.0, 2048.0 );
+      float PI = 3.14159265359f;
 
       vec2 get_latlong( vec2 texcoord ) {
 
-        vec3 xyz = vec3( texcoord.x, texcoord.y, 1.0);
-        vec3 ndc = vec3(2*texcoord.x/1440.0 -1, 2*texcoord.y/1600.0 -1, 1.0);
-        vec4 clip = 1000*vec4(ndc.x, ndc.y, ndc.z, 1.0f);
+        vec4 ndc = vec4(2*texcoord.x/screen_res.x - 1.0, 1.0 - 2*texcoord.y/screen_res.y, 1.0, 1.0);
         
-        mat4 transform;
+        mat4 inv_VP;
 
         if (Y_texcoord.x < 1440.0) {
-          transform = invCamMat_HMD_L * eyePos_L;
+          inv_VP = MVP_L;
         } else {
-          transform = invCamMat_HMD_R * eyePos_R;
+          inv_VP = MVP_R;
         }
 
-        vec4 ray4d = eul2rotm4(head_orientation.x, head_orientation.y, head_orientation.z) * transform * clip;     
-        vec3 ray3d = ray4d.xyz;   
-        float theta = atan( ray3d.y, length(ray3d.xz) );
+        vec3 ray3d = normalize((inv_VP * ndc).xyz);     
+        //outColor = vec4(ray3d.xyz, 1.0);
+        float theta = asin( ray3d.y );
+        //float theta = atan( ray3d.y, length(ray3d.xz) );
         float phi = atan( ray3d.x, ray3d.z );
-        return vec2( phi, theta);
+        return vec2( phi, -theta);
       }
       vec2 reproject_Y (vec2 texcoord ) {
         vec2 phi_theta = get_latlong(texcoord);
-        vec2 xy_sphere = vec2( ((phi_theta.x / 3.14f) * 1920.0 + 1920.0)/2.0, (phi_theta.y + 3.14/2.0) * 1080.0 /3.14 );
+        vec2 xy_sphere = vec2( ((phi_theta.x / PI) * tex_res.x + tex_res.x)/2.0, (phi_theta.y + PI/2.0) * tex_res.y /PI );
         return xy_sphere;
       }
       vec2 reproject_uv( vec2 texcoord ) {
         vec2 phi_theta = get_latlong(texcoord);
-        vec2 xy_sphere = vec2( ((phi_theta.x / 3.14f) * (1920.0/2.0) + (1920.0/2.0))/2.0, (phi_theta.y + 3.14/2.0) * (1080.0/2.0) /3.14 );
+        vec2 xy_sphere = vec2( ((phi_theta.x / PI) * (tex_res.x/2.0) + (tex_res.x/2.0))/2.0, (phi_theta.y + PI/2.0) * (tex_res.y/2.0) / PI );
         return xy_sphere;
       }
       void main()
       {
-        if (vr_view == 1) {
-           screen_res = vec2( 1440.0, 1600.0 );
-        }
-
-        vec2 Y_reprojected = reproject_Y(mod(Y_texcoord, screen_res.x));
-        vec2 uv_reprojected = reproject_uv(mod(Y_texcoord, screen_res.x)) + max( 0.0, min( 0.0, texture(uTex, uv_texcoord).x ) );  // to get rid of inefficiency bug
+        vec2 Y_reprojected = reproject_Y(vec2(mod(Y_texcoord.x, screen_res.x), Y_texcoord.y));
+        vec2 uv_reprojected = reproject_uv(vec2(mod(uv_texcoord.x, 0.5*screen_res.x), uv_texcoord.y)) + max( 0.0, min( 0.0, texture(uTex, uv_texcoord).x ) );  // to get rid of inefficiency bug
         float fY = texture(yTex, Y_reprojected).x;
         float fCb = texture(uTex, uv_reprojected).x;
         float fCr = texture(vTex, uv_reprojected).x;
         
-        outColor = vec4(
+        vec4 outColor2 = vec4(
           max(0, min(1.0, 1.16438356164384 * (fY - 0.06274509803921568627) + 1.59567019581339  * (fCr - 0.50196078431372549019))),
           max(0, min(1.0, 1.16438356164384 * (fY - 0.06274509803921568627) - 0.391260370716072 * (fCb - 0.50196078431372549019) - 0.813004933873461 * (fCr - 0.50196078431372549019))),
           max(0, min(1.0, 1.16438356164384 * (fY - 0.06274509803921568627) + 2.01741475897078  * (fCb - 0.50196078431372549019))),
           1.0
         );
 
+        outColor = outColor2;
 
       }
     )";
@@ -172,7 +128,7 @@ VideoDisplay::CurrentContextWindow::CurrentContextWindow( const unsigned int wid
   window_.make_context_current();
 }
 
-VideoDisplay::VideoDisplay( const unsigned int width, const unsigned int height, const bool fullscreen, const bool vr_view )
+VideoDisplay::VideoDisplay( const unsigned int width, const unsigned int height, const bool fullscreen)
   : width_( width )
   , height_( height )
   , current_context_window_( width_, height_, "OpenGL Example", fullscreen )
@@ -199,22 +155,14 @@ VideoDisplay::VideoDisplay( const unsigned int width, const unsigned int height,
   const auto window_size = window().framebuffer_size();
   resize( window_size.first, window_size.second );
 
-  int vr_flag = 0;
-
-  if (vr_view) {
-    vr_flag = 1;
-  }
-
-  texture_shader_program_.use();
-  glUniform1i( texture_shader_program_.uniform_location( "vr_view" ), vr_flag );
-
   glCheck( "VideoDisplay constructor" );
 }
 
-void VideoDisplay::update_head_orientation( const float x, const float y, const float z )
+void VideoDisplay::update_MVP( const float MVP_L[16], const float MVP_R[16] )
 {
   texture_shader_program_.use();
-  glUniform3f( texture_shader_program_.uniform_location( "head_orientation" ), x, y, z );
+  glUniformMatrix4fv( texture_shader_program_.uniform_location( "MVP_L" ), 1, GL_FALSE, MVP_L );
+  glUniformMatrix4fv( texture_shader_program_.uniform_location( "MVP_R" ), 1, GL_FALSE, MVP_R );
 }
 
 void VideoDisplay::resize( const unsigned int width, const unsigned int height )

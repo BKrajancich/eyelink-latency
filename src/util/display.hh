@@ -58,7 +58,7 @@ private:
   VertexBufferObject other_vertices_ = {};
 
 public:
-  VideoDisplay( const unsigned int width, const unsigned int height, const bool fullscreen = false, const bool vr_view = false);
+  VideoDisplay( const unsigned int width, const unsigned int height, const bool fullscreen = false);
 
   void draw( Texture420& image );
   void repaint();
@@ -69,7 +69,7 @@ public:
   Window& window() { return current_context_window_.window_; }
   const Window& window() const { return current_context_window_.window_; }
 
-  void update_head_orientation( const float x, const float y, const float z );
+  void update_MVP( const float MVP_L[16], const float MVP_R[16] );
 
   /* forbid copying */
   VideoDisplay( const VideoDisplay& other ) = delete;
