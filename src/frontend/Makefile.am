@@ -1,10 +1,13 @@
 AM_CPPFLAGS = $(CXX17_FLAGS) $(GLU_CFLAGS) $(GLEW_CFLAGS) $(GLFW3_CFLAGS) $(PANGOCAIRO_CFLAGS) $(SDL_CFLAGS) $(SDL_GFX_CFLAGS) $(SDL_IMAGE_CFLAGS) $(SDL_TTF_CFLAGS) $(SDL_MIXER_CFLAGS) $(LIBZMQ_CFLAGS) $(MSGPACK_CFLAGS) -I$(srcdir)/../util
 AM_CXXFLAGS = $(PICKY_CXXFLAGS)
 
-bin_PROGRAMS = example drawtext user_test pupil_labs gazedraw hellovr headdraw
+bin_PROGRAMS = example vive_latency drawtext user_test pupil_labs gazedraw hellovr test headdraw
 
 example_SOURCES = example.cc
 example_LDADD = -L/usr/lib -leyelink_core_graphics -leyelink_core -lsdl_util -lrt -leyelink_core_graphics -lpthread ../util/libgldemoutil.a $(SDL_LIBS) $(SDL_GFX_LIBS) $(SDL_IMAGE_LIBS) $(SDL_TTF_LIBS) $(SDL_MIXER_LIBS) $(GLU_LIBS) $(GLEW_LIBS) $(GLFW3_LIBS) $(PANGOCAIRO_LIBS)
+
+vive_latency_SOURCES = vive_latency.cc
+vive_latency_LDADD = -L/usr/lib -leyelink_core_graphics -leyelink_core -lsdl_util -lrt -leyelink_core_graphics -lpthread ../util/libgldemoutil.a $(SDL_LIBS) $(SDL_GFX_LIBS) $(SDL_IMAGE_LIBS) $(SDL_TTF_LIBS) $(SDL_MIXER_LIBS) $(GLU_LIBS) $(GLEW_LIBS) $(GLFW3_LIBS) $(PANGOCAIRO_LIBS)
 
 drawtext_SOURCES = drawtext.cc
 drawtext_LDADD = ../util/libgldemoutil.a $(GLU_LIBS) $(GLEW_LIBS) $(GLFW3_LIBS) $(PANGOCAIRO_LIBS)
@@ -22,5 +25,9 @@ gazedraw_LDADD = ../util/libgldemoutil.a $(GLU_LIBS) $(GLEW_LIBS) $(GLFW3_LIBS) 
 hellovr_SOURCES = hellovr.cc
 hellovr_LDADD = -L/home/brooke/.local/share/Steam/steamapps/common/SteamVR/bin/linux64/ -L/home/brooke/.local/share/Steam/ubuntu12_32/steam-runtime/lib/x86_64-linux-gnu/ -L/home/brooke/.local/share/Steam/ubuntu12_32/steam-runtime/usr/lib/x86_64-linux-gnu/ -L/home/brooke/.local/share/Steam/steamapps/common/SteamVR/bin/linux64/qt/lib/ -L/home/brooke/repos/openvr/lib/linux64/ /home/brooke/repos/openvr/bin/linux64/libopenvr_api.so ../util/libgldemoutil.a 
 
+test_SOURCES = test.cpp
+test_LDADD = ../util/libgldemoutil.a $(GLU_LIBS) $(SDL_LIBS) $(GLEW_LIBS) $(GLFW3_LIBS) $(PANGOCAIRO_LIBS) -lglut 
+
 headdraw_SOURCES = headdraw.cc
-headdraw_LDADD = ../util/libgldemoutil.a $(GLU_LIBS) $(GLEW_LIBS) $(GLFW3_LIBS) $(PANGOCAIRO_LIBS) -L/home/brooke/.local/share/Steam/steamapps/common/SteamVR/bin/linux64/ -L/home/brooke/.local/share/Steam/ubuntu12_32/steam-runtime/lib/x86_64-linux-gnu/ -L/home/brooke/.local/share/Steam/ubuntu12_32/steam-runtime/usr/lib/x86_64-linux-gnu/ -L/home/brooke/.local/share/Steam/steamapps/common/SteamVR/bin/linux64/qt/lib/ -L/home/brooke/repos/openvr/lib/linux64/ /home/brooke/repos/openvr/bin/linux64/libopenvr_api.so ../util/libgldemoutil.a 
+headdraw_LDADD = ../util/libgldemoutil.a $(GLU_LIBS) $(SDL_LIBS) $(GLEW_LIBS) $(GLFW3_LIBS) $(PANGOCAIRO_LIBS) -lglut -L/home/brooke/.local/share/Steam/steamapps/common/SteamVR/bin/linux64/ -L/home/brooke/.local/share/Steam/ubuntu12_32/steam-runtime/lib/x86_64-linux-gnu/ -L/home/brooke/.local/share/Steam/ubuntu12_32/steam-runtime/usr/lib/x86_64-linux-gnu/ -L/home/brooke/.local/share/Steam/steamapps/common/SteamVR/bin/linux64/qt/lib/ -L/home/brooke/repos/openvr/lib/linux64/ /home/brooke/repos/openvr/bin/linux64/libopenvr_api.so ../util/libgldemoutil.a 
+

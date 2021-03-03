@@ -33,14 +33,20 @@ const string VideoDisplay::shader_source_scale_from_pixel_coordinates = R"( #ver
       out vec2 Y_texcoord;
       out vec2 uv_texcoord;
 
+      
+
       void main()
       {
+
         gl_Position = vec4( 2 * position.x / window_size.x - 1.0,
                             1.0 - 2 * position.y / window_size.y, 0.0, 1.0 );
+
+    
         Y_texcoord = vec2( position.x, position.y );
         uv_texcoord = vec2( chroma_texcoord.x, chroma_texcoord.y );
       }
     )";
+
 
 /* octave> 255 * inv([219*[.7152 .0722 .2126]'view605734]'
                       224*[-0.454152908305817 -0.0458470916941834 .5]']') */
@@ -69,6 +75,40 @@ const string VideoDisplay::shader_source_ycbcr = R"( #version 130
       vec2 screen_res = vec2( 1440.0, 1600.0 );
       vec2 tex_res = vec2( 3840.0, 2048.0 );
       float PI = 3.14159265359f;
+
+      float d_width = 2880.0;
+      float d_height = 1600.0;
+      vec2 COP = vec2( 788.854, 792.558 );
+      float scaleX = 1.250902771949768;
+      float scaleY = 1.1248387098312378;
+      float k1 = -0.19615396996141743;
+      float k2 = -0.043787285603857626;
+      float k3 = -0.024965852625323637;
+      
+      vec2 transformPoint( vec2 position_in ) {
+        float rX = COP.x - position_in.x;
+        float rY = COP.y - position_in.y;
+
+        float retX = COP.x - (rX*scaleX);
+        float retY = COP.y - (rY*scaleY);
+
+        vec2 offset = vec2( retX - COP.x, retY - COP.y );
+        float r = sqrt( offset.x * offset.y + offset.y * offset.y );
+
+        float maxRadius = d_width / 2;
+        //sqrt( d_width/2 * d_width/2 + d_height/2 * d_height/2 );
+        
+        k1 = k1 * pow( r/maxRadius, 2);
+        k2 = k2 * pow( r/maxRadius, 4);
+        k3 = k3 * pow( r/maxRadius, 6);
+
+        float k = 1 / (1 + k1 + k2 + k3 );
+        float newX = COP.x + (k * offset.x);
+        float newY = COP.y + (k * offset.y);
+
+        return vec2 (newX, newY);
+
+      }
 
       vec2 get_latlong( vec2 texcoord ) {
 
@@ -101,8 +141,15 @@ const string VideoDisplay::shader_source_ycbcr = R"( #version 130
       }
       void main()
       {
+        // vec2 texcoord = transformPoint( Y_texcoord );
+
+        // if (texcoord.x < 0.0 || texcoord.y < 0.0 || texcoord.x > screen_res.x || texcoord.y > screen_res.y) {
+        //   outColor = vec4 (0.0, 0.0, 0.0, 1.0);
+        //   return;
+        // }
+
         vec2 Y_reprojected = reproject_Y(vec2(mod(Y_texcoord.x, screen_res.x), Y_texcoord.y));
-        vec2 uv_reprojected = reproject_uv(vec2(mod(uv_texcoord.x, 0.5*screen_res.x), uv_texcoord.y)) + max( 0.0, min( 0.0, texture(uTex, uv_texcoord).x ) );  // to get rid of inefficiency bug
+        vec2 uv_reprojected = reproject_uv(vec2(mod(Y_texcoord.x, screen_res.x), Y_texcoord.y)) + max( 0.0, min( 0.0, texture(uTex, uv_texcoord).x ) );  // to get rid of inefficiency bug
         float fY = texture(yTex, Y_reprojected).x;
         float fCb = texture(uTex, uv_reprojected).x;
         float fCr = texture(vTex, uv_reprojected).x;

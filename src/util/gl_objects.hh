@@ -35,6 +35,8 @@
 #include <string>
 #include <vector>
 
+#include "Sphere.h"
+
 class GLFWContext
 {
   static void error_callback( const int, const char* const description );
@@ -94,6 +96,11 @@ public:
   static void load( const std::vector<VertexObject>& vertices, const GLenum usage )
   {
     glBufferData( id, vertices.size() * sizeof( VertexObject ), &vertices.front(), usage );
+  }
+
+    static void loadSphere( Sphere sphere, const GLenum usage )
+  {
+    glBufferData( id, sphere.getInterleavedVertexSize(), sphere.getInterleavedVertices(), usage );
   }
 
   constexpr static GLenum id = id_;
